@@ -12,7 +12,9 @@
     "report": "playwright show-report",
     "codegen": "playwright codegen",
     "open": "playwright open",
-    "estimate": "tsx scripts/generate-aws-rds-estimate.ts"
+    "estimate": "tsx scripts/generate-aws-rds-estimate.ts",
+    "check": "tsc --noEmit",
+    "lint": "eslint ."
   },
   "keywords": [],
   "author": "",
@@ -20,6 +22,13 @@
   "devDependencies": {
     "@playwright/mcp": "^0.0.78",
     "@playwright/test": "^1.62.0",
-    "tsx": "^4.23.1"
+    "@types/node": "^26.1.1",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@typescript-eslint/parser": "^8.65.0",
+    "eslint": "^10.8.0",
+    "eslint-plugin-playwright": "^2.10.5",
+    "prettier": "^3.9.6",
+    "tsx": "^4.23.1",
+    "typescript": "^6.0.3"
   }
 }
