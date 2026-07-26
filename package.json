@@ -11,13 +11,15 @@
     "trace": "playwright show-trace",
     "report": "playwright show-report",
     "codegen": "playwright codegen",
-    "open": "playwright open"
+    "open": "playwright open",
+    "estimate": "tsx scripts/generate-aws-rds-estimate.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
     "@playwright/mcp": "^0.0.78",
-    "@playwright/test": "^1.62.0"
+    "@playwright/test": "^1.62.0",
+    "tsx": "^4.23.1"
   }
 }
