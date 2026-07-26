@@ -54,3 +54,16 @@ npx playwright install --dry-run
 # Install or refresh Chromium
 npx playwright install chromium
 ```
+
+---
+
+## 6. Standalone AWS RDS Estimate CLI Generator
+Run programmatic Playwright pricing simulations with custom CLI flags and timestamped output files:
+
+```bash
+# Direct executable invocation
+./scripts/generate-aws-rds-estimate.ts -e PostgreSQL -r eu-central-1 -i db.r7g.xlarge -t gp3 -s 50
+
+# Custom output paths
+./scripts/generate-aws-rds-estimate.ts -e Oracle -r eu-central-1 -i db.m6i.xlarge -t gp3 -s 500 -c custom.csv -u custom.txt
+```
