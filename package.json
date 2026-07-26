@@ -1,0 +1,23 @@
+{
+  "name": "playright-test",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:trace": "playwright test --trace on",
+    "trace": "playwright show-trace",
+    "report": "playwright show-report",
+    "codegen": "playwright codegen",
+    "open": "playwright open"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/mcp": "^0.0.78",
+    "@playwright/test": "^1.62.0"
+  }
+}
