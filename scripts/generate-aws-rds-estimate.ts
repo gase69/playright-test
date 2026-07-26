@@ -10,19 +10,33 @@
  *   --engine, -e        Database Engine (default: PostgreSQL)
  *   --region, -r        AWS Region code (default: eu-central-1)
  *   --instance-type, -i Instance Class shape (default: db.r7g.xlarge)
- *   --storage-type, -st Storage Volume Type (default: gp3)
+ *   --storage-type, -t  Storage Volume Type (default: gp3)
  *   --storage-gb, -s    Storage size in GB (default: 50)
  *   --deployment, -d    Deployment Model (default: Multi-AZ)
  *   --description       Custom description for the RDS service
  *   --name              Custom title for the estimate
  *   --headed            Run browser in visible window mode (default: false)
- *   --out-csv           Target output path for CSV export (default: test-results/aws-rds-estimate.csv)
+ *   --out-csv, -c       Target output path for CSV export (default: test-results/aws-rds-estimate-YYYY-MM-DD_HH-mm-ss.csv)
+ *   --out-url, -u       Target output path for share URL (default: test-results/aws-rds-url-YYYY-MM-DD_HH-mm-ss.txt)
  */
 
 import { parseArgs } from 'node:util';
 import { chromium } from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
+
+// Helper to generate ISO-like date string for collision-free output filenames
+function getTimestampString(): string {
+  const now = new Date();
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const yyyy = now.getFullYear();
+  const mm = pad(now.getMonth() + 1);
+  const dd = pad(now.getDate());
+  const hh = pad(now.getHours());
+  const min = pad(now.getMinutes());
+  const ss = pad(now.getSeconds());
+  return `${yyyy}-${mm}-${dd}_${hh}-${min}-${ss}`;
+}
 
 // Region code map helper
 const REGION_MAP: Record<string, string> = {
@@ -50,6 +64,10 @@ const STORAGE_MAP: Record<string, string> = {
 };
 
 async function run() {
+  const timestamp = getTimestampString();
+  const defaultCsvFilename = `test-results/aws-rds-estimate-${timestamp}.csv`;
+  const defaultUrlFilename = `test-results/aws-rds-url-${timestamp}.txt`;
+
   const { values } = parseArgs({
     options: {
       engine: { type: 'string', short: 'e', default: 'PostgreSQL' },
@@ -61,7 +79,8 @@ async function run() {
       description: { type: 'string', default: 'RDS PostgreSQL - Production Database' },
       name: { type: 'string', default: 'RDS PostgreSQL Production Estimate (eu-central-1)' },
       headed: { type: 'boolean', default: false },
-      'out-csv': { type: 'string', default: 'test-results/aws-rds-estimate.csv' },
+      'out-csv': { type: 'string', short: 'c' },
+      'out-url': { type: 'string', short: 'u' },
     },
     allowPositionals: true,
   });
@@ -76,7 +95,8 @@ async function run() {
   const descriptionText = values.description || `RDS ${engine} Database`;
   const estimateTitle = values.name || `RDS ${engine} Estimate (${regionCode})`;
   const isHeaded = !!values.headed;
-  const outCsvPath = path.resolve(process.cwd(), values['out-csv'] || 'test-results/aws-rds-estimate.csv');
+  const outCsvPath = path.resolve(process.cwd(), values['out-csv'] || defaultCsvFilename);
+  const outUrlPath = path.resolve(process.cwd(), values['out-url'] || defaultUrlFilename);
 
   console.log('\n==================================================');
   console.log('AWS RDS ESTIMATE GENERATOR');
@@ -88,6 +108,8 @@ async function run() {
   console.log(`Description  : ${descriptionText}`);
   console.log(`Estimate Name: ${estimateTitle}`);
   console.log(`Mode         : ${isHeaded ? 'Headed (Visible)' : 'Headless'}`);
+  console.log(`CSV Output   : ${outCsvPath}`);
+  console.log(`URL Output   : ${outUrlPath}`);
   console.log('==================================================\n');
 
   console.log('⏳ Launching browser and navigating to AWS Calculator...');
@@ -245,6 +267,11 @@ async function run() {
       const publicLinkInput = page.getByRole('textbox', { name: /copy public link/i }).first();
       if (await publicLinkInput.isVisible().catch(() => false)) {
         publicShareUrl = await publicLinkInput.inputValue();
+        const urlDir = path.dirname(outUrlPath);
+        if (!fs.existsSync(urlDir)) {
+          fs.mkdirSync(urlDir, { recursive: true });
+        }
+        fs.writeFileSync(outUrlPath, publicShareUrl);
       }
     }
 
@@ -254,7 +281,7 @@ async function run() {
     if (monthlyCostText) console.log(`Monthly Cost : ${monthlyCostText.trim()}`);
     if (annualCostText)  console.log(`Annual Cost  : ${annualCostText.trim()}`);
     if (exportedCsvPath) console.log(`CSV Export   : ${exportedCsvPath}`);
-    if (publicShareUrl)  console.log(`Public URL   : ${publicShareUrl}`);
+    if (publicShareUrl)  console.log(`Public URL   : ${publicShareUrl} (saved to ${outUrlPath})`);
     console.log('==================================================\n');
 
   } catch (error) {
