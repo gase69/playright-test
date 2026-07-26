@@ -5,40 +5,6 @@
 > this repo, it belongs in this file. See `APPROACH.md` for the full plan this
 > repo is built from.
 
-> **Status: scaffolding in progress.** The files and commands below describe the
-> *intended* end state. Until `package.json`, `playwright.config.ts`, `server/`,
-> and the spec files exist, commands like `npm test` will fail. See `APPROACH.md`
-> for the build sequence. This banner is removed once Step 1 lands.
-
-## Purpose
-
-A self-contained sandbox to learn and test **three Playwright surfaces** side by side:
-
-1. **Playwright test scripts** (`@playwright/test`) — scripted, assertion-based tests in `tests/`.
-2. **Playwright CLI** (`npx playwright …`) — interactive tooling: codegen, inspector, traces, screenshots, pdf.
-3. **Playwright MCP** (`@playwright/mcp`) — agent-driven browsing (accessibility-tree based), wired to both Claude and agy.
-
-The teaching goal is to **contrast** the three: fixed assertions (scripts) vs. recorded scripts (codegen) vs. semantic agent-driven browsing (MCP).
-
-## Environment (verified 2026-07-26)
-
-- Node `v22.23.1`, npm `10.9.8`. No pnpm/yarn — use **npm/npx**.
-- Playwright `1.62.0` via `@playwright/test` (pinned in `package.json`).
-- Browsers cached at `~/.cache/ms-playwright`; run `npx playwright install chromium` to bring cache current.
-- `/usr/bin/chromium-browser` exists; `DISPLAY=:0` (WSL2 GUI) → **headed mode works**.
-- Agents present: Claude Code (`2.1.220`), agy (gemini-cli-derived, reads `AGENTS.md`).
-
-## Setup (one-time)
-
-```bash
-git init && git add -A && git commit -m "init"   # real repo first
-npm install                       # install @playwright/test + @playwright/mcp (pinned)
-npx playwright install chromium   # download/refresh browser
-```
-
-`playwright.config.ts` runs the local fixture server (`server/`) via `webServer`
-on port 3300, `reuseExistingServer: true`. Tests point at `http://localhost:3300`.
-
 ## Run recipes
 
 | Task | Command |
@@ -51,30 +17,31 @@ on port 3300, `reuseExistingServer: true`. Tests point at `http://localhost:3300
 | Open HTML report | `npm run report` |
 | Record a script (codegen) | `npm run codegen` |
 | Inspector on a URL | `npm run open` |
+| Generate AWS RDS Estimate (CLI) | `npm run estimate -- [options]` |
 | Screenshot / PDF | `npx playwright screenshot <url> out.png` / `… pdf <url> out.pdf` |
-| Run fixture server standalone | `npm run serve` |
 
 ## Repo layout
 
 ```
-package.json            # scripts + pinned deps (@playwright/test, @playwright/mcp)
-playwright.config.ts    # chromium (headless default), trace=retain-on-failure, HTML report, webServer→server/
-.gitignore              # node_modules/, test-results/, playwright-report/, blob-report/, .auth/
-AGENTS.md               # this file — source of truth
-CLAUDE.md               # stub → AGENTS.md
-APPROACH.md             # full plan / decisions log
-server/                 # local fixture app (login + todo) — deterministic target for tests + MCP + codegen
+package.json                      # scripts + pinned deps (@playwright/test, @playwright/mcp, tsx)
+playwright.config.ts              # chromium (headless default), trace=retain-on-failure, HTML report
+.gitignore                        # node_modules/, test-results/, playwright-report/, blob-report/, .auth/
+AGENTS.md                         # this file — single source of truth
+CLAUDE.md                         # stub → AGENTS.md
+APPROACH.md                       # full plan / decisions log
+scripts/
+  generate-aws-rds-estimate.ts    # CLI generator for AWS RDS estimates (custom flags)
 tests/
   01-smoke.spec.ts
   02-locators.spec.ts
   03-fixtures.spec.ts
-  04-auth.spec.ts       # storageState reuse (login via fixture server)
-  05-debug.spec.ts      # trace, pause, screenshots
-  06-three-ways.spec.ts # "same task, three ways" — scripted version
-  recorded/             # output of `npx playwright codegen` (incl. three-ways.codegen.ts)
-docs/cli.md             # Playwright CLI exercises (commands + expected output)
-.mcp.json               # project-scoped Playwright MCP for Claude Code
-.agents/mcp_config.json   # project-scoped Playwright MCP for agy (mcpServers)
+  04-auth.spec.ts                 # storageState reuse
+  05-debug.spec.ts                # trace, pause, screenshots
+  06-aws-rds-calculator.spec.ts   # AWS Pricing Calculator RDS PostgreSQL E2E test
+  recorded/                       # output of `npx playwright codegen`
+docs/cli.md                       # Playwright CLI exercises (commands + expected output)
+.mcp.json                         # project-scoped Playwright MCP for Claude Code
+.agents/mcp_config.json             # project-scoped Playwright MCP for agy (mcpServers)
 ```
 
 ## Conventions (follow these when writing tests)
