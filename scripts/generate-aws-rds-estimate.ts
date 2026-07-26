@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 /**
  * scripts/generate-aws-rds-estimate.ts
  * Standalone CLI generator for AWS RDS Pricing Calculator estimates.
