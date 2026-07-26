@@ -4,7 +4,7 @@
  * Standalone CLI generator for AWS RDS Pricing Calculator estimates.
  *
  * Usage:
- *   npx tsx scripts/generate-aws-rds-estimate.ts [options]
+ *   ./scripts/generate-aws-rds-estimate.ts [options]
  *
  * Options:
  *   --engine, -e        Database Engine (default: PostgreSQL)
@@ -24,6 +24,9 @@ import { parseArgs } from 'node:util';
 import { chromium } from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
+
+// Helper to escape arbitrary strings for safe use in RegExp constructors
+const escapeRegExp = (str: string): string => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // Helper to generate ISO-like date string for collision-free output filenames
 function getTimestampString(): string {
@@ -63,6 +66,20 @@ const STORAGE_MAP: Record<string, string> = {
   'magnetic': 'Magnetic',
 };
 
+interface ParsedCliValues {
+  engine?: string;
+  region?: string;
+  'instance-type'?: string;
+  'storage-type'?: string;
+  'storage-gb'?: string;
+  deployment?: string;
+  description?: string;
+  name?: string;
+  headed?: boolean;
+  'out-csv'?: string;
+  'out-url'?: string;
+}
+
 async function run() {
   const timestamp = getTimestampString();
   const defaultCsvFilename = `test-results/aws-rds-estimate-${timestamp}.csv`;
@@ -82,8 +99,7 @@ async function run() {
       'out-csv': { type: 'string', short: 'c' },
       'out-url': { type: 'string', short: 'u' },
     },
-    allowPositionals: true,
-  });
+  }) as { values: ParsedCliValues };
 
   const engine = values.engine || 'PostgreSQL';
   const regionCode = values.region || 'eu-central-1';
@@ -128,8 +144,10 @@ async function run() {
       });
     };
 
-    // 1. Open AWS Pricing Calculator homepage
-    await page.goto('https://calculator.aws/#/', { waitUntil: 'networkidle' });
+    // 1. Open AWS Pricing Calculator homepage with 30s timeout safety
+    await page.goto('https://calculator.aws/#/', { waitUntil: 'networkidle', timeout: 30000 }).catch(async () => {
+      await page.waitForLoadState('domcontentloaded');
+    });
     await dismissCookies();
 
     // 2. Click "Create estimate"
@@ -144,7 +162,7 @@ async function run() {
     // 4. Click "Configure"
     const configureBtn = page.getByRole('button', { name: /configure/i }).first();
     await configureBtn.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => null);
     await dismissCookies();
 
     // 5. Fill Description
@@ -165,7 +183,7 @@ async function run() {
         await page.waitForTimeout(300);
       }
 
-      const regionOption = page.getByText(new RegExp(regionSearch, 'i')).first();
+      const regionOption = page.getByText(new RegExp(escapeRegExp(regionSearch), 'i')).first();
       if (await regionOption.isVisible({ timeout: 5000 }).catch(() => false)) {
         await regionOption.click();
       }
@@ -178,14 +196,14 @@ async function run() {
       await instanceCombobox.fill(instanceType.replace(/^db\./, ''));
       await page.waitForTimeout(500);
 
-      const matchedOption = page.getByText(new RegExp(instanceType.replace('.', '\\.'), 'i')).first();
+      const matchedOption = page.getByText(new RegExp(escapeRegExp(instanceType), 'i')).first();
       if (await matchedOption.isVisible({ timeout: 5000 }).catch(() => false)) {
         await matchedOption.click();
       }
     }
 
     // 8. Select Storage Type & Amount
-    const storageTypeOption = page.getByText(new RegExp(storageTypeLabel.replace('(', '\\(').replace(')', '\\)'), 'i')).first();
+    const storageTypeOption = page.getByText(new RegExp(escapeRegExp(storageTypeLabel), 'i')).first();
     if (await storageTypeOption.isVisible({ timeout: 5000 }).catch(() => false)) {
       await storageTypeOption.click();
     }
@@ -198,15 +216,15 @@ async function run() {
     // 9. Save and view summary
     await dismissCookies();
     const saveAndSummaryBtn = page.getByRole('button', { name: /save and view summary|save and add to estimate/i }).first();
-    await saveAndSummaryBtn.click({ force: true });
+    await saveAndSummaryBtn.click();
 
     // 10. Verify Redirection to Estimate Summary
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => null);
 
     // 11. Edit Estimate Title
     const editTitleLink = page.getByRole('link', { name: /edit my estimate|edit/i }).or(page.getByText(/edit/i)).first();
     if (await editTitleLink.isVisible().catch(() => false)) {
-      await editTitleLink.click({ force: true }).catch(() => {});
+      await editTitleLink.click().catch(() => {});
       const titleInput = page.getByRole('textbox', { name: /enter name|estimate name/i }).first();
       if (await titleInput.isVisible().catch(() => false)) {
         await titleInput.fill(estimateTitle);
@@ -225,18 +243,18 @@ async function run() {
     let exportedCsvPath = '';
     const exportBtn = page.getByRole('button', { name: /export/i }).first();
     if (await exportBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await exportBtn.click({ force: true });
+      await exportBtn.click();
       await page.waitForTimeout(500);
 
       const csvOption = page.getByText(/^csv$/i).or(page.getByRole('menuitem', { name: /csv/i })).first();
       if (await csvOption.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await csvOption.click({ force: true });
+        await csvOption.click();
         await page.waitForTimeout(500);
 
         const okBtn = page.getByRole('button', { name: /^ok$/i }).first();
         if (await okBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
           const downloadPromise = page.waitForEvent('download', { timeout: 15000 });
-          await okBtn.click({ force: true });
+          await okBtn.click();
           const download = await downloadPromise.catch(() => null);
           if (download) {
             const outDir = path.dirname(outCsvPath);
@@ -255,12 +273,12 @@ async function run() {
     await dismissCookies();
     const shareBtn = page.getByRole('button', { name: /share/i }).first();
     if (await shareBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await shareBtn.click({ force: true });
+      await shareBtn.click();
       await page.waitForTimeout(1000);
 
       const agreeBtn = page.getByRole('button', { name: /agree and continue|save/i }).first();
       if (await agreeBtn.isVisible().catch(() => false)) {
-        await agreeBtn.click({ force: true });
+        await agreeBtn.click();
         await page.waitForTimeout(1000);
       }
 
