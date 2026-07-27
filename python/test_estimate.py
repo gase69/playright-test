@@ -16,6 +16,8 @@ def test_rds_estimate_config_defaults():
     assert config.storage_type == "gp3"
     assert config.storage_gb == 50
     assert config.deployment == "Multi-AZ"
+    assert config.utilization_value == 100
+    assert config.utilization_unit == "%Utilized/Month"
     assert config.headed is False
 
 

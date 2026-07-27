@@ -61,6 +61,8 @@ class RdsEstimateConfig(BaseModel):
     deployment: str = "Multi-AZ"
     license_model: str | None = None
     edition: str | None = None
+    utilization_value: int = Field(default=100, gt=0)
+    utilization_unit: str = "%Utilized/Month"
     description: str | None = None
     name: str | None = None
     headed: bool = False
@@ -202,6 +204,7 @@ async def run_estimate_generator(
             f"[bold]Deployment:[/bold] {config.deployment}\n"
             + (f"[bold]License:[/bold] {config.license_model}\n" if config.license_model else "")
             + (f"[bold]Edition:[/bold] {config.edition}\n" if config.edition else "")
+            + f"[bold]Utilization:[/bold] {config.utilization_value} ({config.utilization_unit})\n"
             + f"[bold]Description:[/bold] {description_text}\n"
             f"[bold]Estimate Name:[/bold] {estimate_title}\n"
             f"[bold]Mode:[/bold] {'Headed (Visible)' if config.headed else 'Headless'}\n"
@@ -358,6 +361,26 @@ async def run_estimate_generator(
                 )
                 if await wait_visible(storage_amt_input, 5000):
                     await storage_amt_input.fill(str(config.storage_gb))
+
+                # 8.5. Select Utilization Value & Unit
+                util_input = page.get_by_role(
+                    "spinbutton", name=re.compile(r"utilization", re.IGNORECASE)
+                ).first
+                if await wait_visible(util_input, 5000):
+                    await util_input.fill(str(config.utilization_value))
+
+                if config.utilization_unit:
+                    unit_btn = page.get_by_role(
+                        "button", name=re.compile(r"utilized|hours", re.IGNORECASE)
+                    ).first
+                    if await wait_visible(unit_btn, 5000):
+                        await unit_btn.click()
+                        await page.wait_for_timeout(300)
+                        unit_opt = page.get_by_role("option").filter(
+                            has_text=re.compile(re.escape(config.utilization_unit), re.IGNORECASE)
+                        ).first
+                        if await wait_visible(unit_opt, 5000):
+                            await unit_opt.click()
 
                 # 9. Save and view summary
                 await assert_no_validation_errors(page, "before saving the estimate")
@@ -527,6 +550,17 @@ def main(
     ] = "Multi-AZ",
     license_model: Annotated[str | None, typer.Option("--license", help="License model")] = None,
     edition: Annotated[str | None, typer.Option("--edition", help="Database edition")] = None,
+    utilization_value: Annotated[
+        int, typer.Option("--utilization-value", "-uv", help="Utilization value (e.g. 100, 50, 730)")
+    ] = 100,
+    utilization_unit: Annotated[
+        str,
+        typer.Option(
+            "--utilization-unit",
+            "-uu",
+            help="Utilization unit (%Utilized/Month, Hours/Day, Hours/Week, Hours/Month)",
+        ),
+    ] = "%Utilized/Month",
     description: Annotated[
         str | None, typer.Option("--description", help="Service description")
     ] = None,
@@ -552,6 +586,8 @@ def main(
             deployment=deployment,
             license_model=license_model,
             edition=edition,
+            utilization_value=utilization_value,
+            utilization_unit=utilization_unit,
             description=description,
             name=name,
             headed=headed,

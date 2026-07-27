@@ -178,6 +178,8 @@ interface ParsedCliValues {
   deployment?: string;
   license?: string;
   edition?: string;
+  'utilization-value'?: string;
+  'utilization-unit'?: string;
   description?: string;
   name?: string;
   headed?: boolean;
@@ -204,6 +206,8 @@ Options:
   --deployment, -d    Deployment Model, e.g. Single-AZ / Multi-AZ (default: Multi-AZ)
   --license           License model, e.g. "License included" / "Bring your own media"
   --edition           Database edition, e.g. Enterprise / Standard / Web / Express
+  --utilization-value Utilization quantity value (default: 100)
+  --utilization-unit  Utilization unit (%Utilized/Month, Hours/Day, Hours/Week, Hours/Month)
   --description       Custom description for the RDS service
   --name              Custom title for the estimate
   --headed            Run browser in visible window mode (default: false)
@@ -262,6 +266,12 @@ VERBOSE OPTIONS & ACCEPTED VALUES GUIDE
    • "Web Edition"                   (SQL Server only)
    • "Express Edition"               (SQL Server only)
 
+7. Utilization Units (--utilization-unit):
+   • "%Utilized/Month" (Default)
+   • "Hours/Day"
+   • "Hours/Week"
+   • "Hours/Month"
+
 ================================================================================
 EXAMPLES
 ================================================================================
@@ -269,7 +279,7 @@ EXAMPLES
   ./scripts/generate-aws-rds-estimate.ts
 
 • SQL Server Standard Edition with License Included:
-  ./scripts/generate-aws-rds-estimate.ts -e "SQL Server" -i db.m6i.large --license "License included" --edition "Standard Edition"
+  ./scripts/generate-aws-rds-estimate.ts -e "SQL Server" -i db.m6i.xlarge --license "License included" --edition "Standard Edition"
 
 • Oracle Database Enterprise (BYOL) with Headed GUI:
   ./scripts/generate-aws-rds-estimate.ts -e Oracle -i db.m6i.xlarge --license "Bring your own license" --edition "Enterprise Edition" --headed
@@ -293,6 +303,8 @@ async function run() {
         deployment: { type: 'string', short: 'd', default: 'Multi-AZ' },
         license: { type: 'string' },
         edition: { type: 'string' },
+        'utilization-value': { type: 'string', default: '100' },
+        'utilization-unit': { type: 'string', default: '%Utilized/Month' },
         description: { type: 'string' },
         name: { type: 'string' },
         headed: { type: 'boolean', default: false },
@@ -325,6 +337,8 @@ async function run() {
   const deployment = values.deployment || 'Multi-AZ';
   const licenseModel = values.license;
   const dbEdition = values.edition;
+  const utilizationValue = values['utilization-value'] || '100';
+  const utilizationUnit = values['utilization-unit'] || '%Utilized/Month';
   const descriptionText = values.description || `RDS ${engine} - Production Database`;
   const estimateTitle = values.name || `RDS ${engine} Production Estimate (${regionCode})`;
   const isHeaded = !!values.headed;
@@ -341,6 +355,7 @@ async function run() {
   console.log(`Deployment   : ${deployment}`);
   if (licenseModel) console.log(`License      : ${licenseModel}`);
   if (dbEdition) console.log(`Edition      : ${dbEdition}`);
+  console.log(`Utilization  : ${utilizationValue} (${utilizationUnit})`);
   console.log(`Description  : ${descriptionText}`);
   console.log(`Estimate Name: ${estimateTitle}`);
   console.log(`Mode         : ${isHeaded ? 'Headed (Visible)' : 'Headless'}`);
@@ -454,6 +469,23 @@ async function run() {
     const storageAmountInput = page.getByRole('spinbutton', { name: /storage amount/i }).or(page.getByPlaceholder(/storage amount/i)).first();
     if (await waitVisible(storageAmountInput, 5000)) {
       await storageAmountInput.fill(storageGb);
+    }
+
+    // 8.5. Select Utilization Value & Unit
+    const utilInput = page.getByRole('spinbutton', { name: /utilization/i }).first();
+    if (await waitVisible(utilInput, 5000)) {
+      await utilInput.fill(utilizationValue);
+    }
+    if (utilizationUnit) {
+      const unitBtn = page.getByRole('button', { name: /utilized|hours/i }).first();
+      if (await waitVisible(unitBtn, 5000)) {
+        await unitBtn.click();
+        await page.waitForTimeout(300);
+        const unitOpt = page.getByRole('option').filter({ hasText: new RegExp(escapeRegExp(utilizationUnit), 'i') }).first();
+        if (await waitVisible(unitOpt, 5000)) {
+          await unitOpt.click();
+        }
+      }
     }
 
     // 9. Save and view summary
