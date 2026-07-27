@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --project python
 """
 python/generate_aws_rds_estimate.py
 Standalone Python CLI generator for AWS RDS Pricing Calculator estimates using Playwright.

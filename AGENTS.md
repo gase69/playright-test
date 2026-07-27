@@ -36,7 +36,7 @@ The teaching goal is to **contrast** the three: fixed assertions (scripts) vs. r
 | Record a script (codegen) | `npm run codegen` |
 | Inspector on a URL | `npm run open` |
 | **AWS RDS CLI Generator (TS)** | `npm run estimate -- [options]` / `./scripts/generate-aws-rds-estimate.ts` |
-| **AWS RDS CLI Generator (Python)** | `npm run estimate:py -- [options]` / `uv run --directory python generate-aws-rds-estimate-py` |
+| **AWS RDS CLI Generator (Python)** | `npm run estimate:py -- [options]` / `./python/generate_aws_rds_estimate.py [options]` |
 | **TypeScript Type Check** | `npm run check` |
 | **Python Quality Check** | `npm run check:py` (`ruff` + `pyright`) |
 | **ESLint & Security Linting** | `npm run lint` |
