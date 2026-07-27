@@ -516,10 +516,10 @@ async function run() {
       await shareBtn.click();
       await page.waitForTimeout(1000);
 
-      const agreeBtn = page.getByRole('button', { name: /agree and continue|save/i }).first();
-      if (await waitVisible(agreeBtn)) {
-        await agreeBtn.click();
-        await page.waitForTimeout(1000);
+      const agreeBtn = page.getByRole('button', { name: /agree and continue/i }).first();
+      if (await waitVisible(agreeBtn, 5000)) {
+        await agreeBtn.click({ force: true }).catch(() => agreeBtn.click());
+        await page.waitForTimeout(1500);
       }
 
       // The page renders two "Copy public link" textboxes (a duplicate/responsive layout node
