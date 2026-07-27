@@ -63,21 +63,18 @@ test.describe('AWS Pricing Calculator - Custom RDS PostgreSQL Simulation', () =>
     }
 
     // 6. Select Region: "Europe (Frankfurt)" / eu-central-1
-    const regionDropdown = page.getByRole('button', { name: /US East|Europe|Region/i }).first();
+    // Note: the page has two dropdowns whose *current value* can read "Region" or a region
+    // name ("US East (Ohio)"), so matching on displayed value is ambiguous. Target by the
+    // field's accessible label ("Choose a Region") instead.
+    const regionDropdown = page.getByRole('button', { name: /choose a region/i }).first();
     if (await regionDropdown.isVisible({ timeout: 5000 }).catch(() => false)) {
       await regionDropdown.click();
       await page.waitForTimeout(500);
 
-      const regionSearch = page.getByPlaceholder(/search/i).or(page.getByRole('textbox')).first();
-      if (await regionSearch.isVisible().catch(() => false)) {
-        await regionSearch.fill('Frankfurt');
-        await page.waitForTimeout(300);
-      }
-
-      const frankfurtOption = page.getByText(/Europe \(Frankfurt\)|eu-central-1/i).first();
-      if (await frankfurtOption.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await frankfurtOption.click();
-      }
+      const frankfurtOption = page.getByText(/Europe \(Frankfurt\)\s*eu-central-1/i).first();
+      await expect(frankfurtOption).toBeVisible({ timeout: 5000 });
+      await frankfurtOption.click();
+      await expect(regionDropdown).toContainText(/Europe \(Frankfurt\)/i);
     }
 
     // 7. Select Instance Type: r7g.xlarge (db.r7g.xlarge)
@@ -94,9 +91,14 @@ test.describe('AWS Pricing Calculator - Custom RDS PostgreSQL Simulation', () =>
     }
 
     // 8. Select Storage Type (gp3) & Storage Amount (50 GB)
-    const storageTypeOption = page.getByText(/General Purpose SSD \(gp3\)/i).first();
-    if (await storageTypeOption.isVisible({ timeout: 5000 }).catch(() => false)) {
+    // The gp3 option text only exists once the storage volume dropdown is opened.
+    const storageVolumeDropdown = page.getByRole('button', { name: /general purpose ssd/i }).first();
+    if (await storageVolumeDropdown.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await storageVolumeDropdown.click();
+      const storageTypeOption = page.getByText(/General Purpose SSD \(gp3\)/i).first();
+      await expect(storageTypeOption).toBeVisible({ timeout: 5000 });
       await storageTypeOption.click();
+      await expect(storageVolumeDropdown).toContainText(/gp3/i);
     }
 
     const storageAmountInput = page.getByRole('spinbutton', { name: /storage amount/i }).or(page.getByPlaceholder(/storage amount/i)).first();
@@ -121,12 +123,16 @@ test.describe('AWS Pricing Calculator - Custom RDS PostgreSQL Simulation', () =>
     await expect(page.getByText(/my estimate|estimate summary/i).first()).toBeVisible({ timeout: 20000 });
 
     // 12. Set Proper Estimate Name
+    // Editing the name opens an inline textbox (accessible name "Enter Name") with its own
+    // Save/Cancel buttons; the whole page (Export, Share, etc.) stays disabled until Save is
+    // clicked, so the edit must be explicitly committed rather than left open.
     const editEstimateTitle = page.getByRole('link', { name: /edit my estimate|edit/i }).or(page.getByText(/edit/i)).first();
     if (await editEstimateTitle.isVisible().catch(() => false)) {
       await editEstimateTitle.click({ force: true }).catch(() => {});
-      const titleInput = page.getByRole('textbox', { name: /estimate name/i }).first();
+      const titleInput = page.getByRole('textbox', { name: /enter name/i }).first();
       if (await titleInput.isVisible().catch(() => false)) {
         await titleInput.fill('RDS PostgreSQL Production Estimate (eu-central-1)');
+        await page.getByRole('button', { name: /^save$/i }).click();
       }
     }
 

@@ -12,7 +12,11 @@
  *   --instance-type, -i Instance Class shape (default: db.r7g.xlarge)
  *   --storage-type, -t  Storage Volume Type (default: gp3)
  *   --storage-gb, -s    Storage size in GB (default: 50)
- *   --deployment, -d    Deployment Model (default: Multi-AZ)
+ *   --deployment, -d    Deployment Model, e.g. Single-AZ / Multi-AZ (default: Multi-AZ)
+ *   --license           License model, e.g. "License included" / "Bring your own media"
+ *                       (engine-specific field, e.g. SQL Server/Oracle; omitted if not set)
+ *   --edition           Database edition, e.g. Enterprise / Standard / Web / Express
+ *                       (engine-specific field, e.g. SQL Server/Oracle; omitted if not set)
  *   --description       Custom description for the RDS service
  *   --name              Custom title for the estimate
  *   --headed            Run browser in visible window mode (default: false)
@@ -27,6 +31,84 @@ import fs from 'node:fs';
 
 // Helper to escape arbitrary strings for safe use in RegExp constructors
 const escapeRegExp = (str: string): string => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// locator.isVisible({ timeout }) does NOT poll for up to `timeout` — it's a single immediate
+// check and the timeout option is silently ignored. On a slow render, a field can be checked
+// before it has mounted and get treated as "absent", silently skipping a step that should have
+// run. This actually waits, falling back to false only once the timeout genuinely elapses.
+async function waitVisible(locator: import('@playwright/test').Locator, timeout = 5000): Promise<boolean> {
+  try {
+    await locator.waitFor({ state: 'visible', timeout });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// The calculator flags incompatible option combinations (e.g. an edition not supported by the
+// chosen instance size) with an inline "Invalid Selection. ..." message next to the field,
+// while leaving the field visually populated and the page otherwise clickable through to save.
+// Silently continuing past this produces a "successful" estimate for the wrong configuration.
+// Changing an upstream field (e.g. License) can show this error for ~1s while the page
+// recomputes a downstream field's (e.g. Database edition) validity before it settles into
+// either a valid default or a genuinely-invalid stale value, so this polls briefly rather than
+// checking once — a single immediate check would misfire on that transient recompute.
+async function assertNoValidationErrors(
+  page: import('@playwright/test').Page,
+  context: string,
+  attempts = 5,
+  intervalMs = 400,
+): Promise<void> {
+  let errorMessages: string[] = [];
+  for (let i = 0; i < attempts; i++) {
+    errorMessages = await page.getByText(/invalid selection/i).allTextContents();
+    if (errorMessages.length === 0) return;
+    await page.waitForTimeout(intervalMs);
+  }
+  throw new Error(`AWS Pricing Calculator rejected the configuration ${context}: ${errorMessages.join(' | ')}`);
+}
+
+// Selects an option from one of the calculator's labelled dropdown fields (Deployment option,
+// License, Database edition, ...). Some requested values (e.g. "Enterprise" edition on a
+// too-small instance class) are never offered at all for the current instance/license
+// combination — that case has to be caught here since the option simply won't be clickable,
+// no on-page error appears until you dig for the "Invalid Selection" banner. Fails loudly with
+// the list of what *is* available rather than silently leaving the field on its default.
+//
+// verifyAfter runs the "Invalid Selection" check after this specific selection. Leave it false
+// for a field whose change is expected to transiently invalidate a *different*, not-yet-touched
+// field (e.g. switching License here always leaves Database edition on a stale, flagged value
+// until that field's own selectDropdownOption call re-commits it) — asserting here would fail
+// on a state this same flow is about to fix. Pass true only for the field that owns the error,
+// once nothing later in the flow is relied on to resolve it.
+async function selectDropdownOption(
+  page: import('@playwright/test').Page,
+  fieldLabel: string,
+  desiredValue: string,
+  fieldContext: string,
+  verifyAfter = false,
+): Promise<void> {
+  const field = page.getByLabel(fieldLabel, { exact: true }).first();
+  if (!(await waitVisible(field, 5000))) {
+    return;
+  }
+  await field.click();
+  await page.waitForTimeout(300);
+  const option = page.getByRole('option', { name: new RegExp(`^${escapeRegExp(desiredValue)}$`, 'i') }).first();
+  if (!(await waitVisible(option, 5000))) {
+    const available = await page.getByRole('option').allTextContents().catch(() => []);
+    await page.keyboard.press('Escape').catch(() => {});
+    throw new Error(
+      `"${desiredValue}" is not a valid ${fieldContext} for the currently selected configuration. ` +
+      `Available options: ${available.filter(Boolean).join(', ') || '(none found)'}`
+    );
+  }
+  await option.click();
+  await page.waitForTimeout(300);
+  if (verifyAfter) {
+    await assertNoValidationErrors(page, `after selecting ${fieldContext} = "${desiredValue}"`);
+  }
+}
 
 // Helper to generate ISO-like date string for collision-free output filenames
 function getTimestampString(): string {
@@ -73,6 +155,8 @@ interface ParsedCliValues {
   'storage-type'?: string;
   'storage-gb'?: string;
   deployment?: string;
+  license?: string;
+  edition?: string;
   description?: string;
   name?: string;
   headed?: boolean;
@@ -93,6 +177,8 @@ async function run() {
       'storage-type': { type: 'string', short: 't', default: 'gp3' },
       'storage-gb': { type: 'string', short: 's', default: '50' },
       deployment: { type: 'string', short: 'd', default: 'Multi-AZ' },
+      license: { type: 'string' },
+      edition: { type: 'string' },
       description: { type: 'string', default: 'RDS PostgreSQL - Production Database' },
       name: { type: 'string', default: 'RDS PostgreSQL Production Estimate (eu-central-1)' },
       headed: { type: 'boolean', default: false },
@@ -108,6 +194,9 @@ async function run() {
   const storageTypeCode = values['storage-type'] || 'gp3';
   const storageTypeLabel = STORAGE_MAP[storageTypeCode.toLowerCase()] || storageTypeCode;
   const storageGb = values['storage-gb'] || '50';
+  const deployment = values.deployment || 'Multi-AZ';
+  const licenseModel = values.license;
+  const dbEdition = values.edition;
   const descriptionText = values.description || `RDS ${engine} Database`;
   const estimateTitle = values.name || `RDS ${engine} Estimate (${regionCode})`;
   const isHeaded = !!values.headed;
@@ -121,6 +210,9 @@ async function run() {
   console.log(`Region       : ${regionCode} (${regionSearch})`);
   console.log(`Instance     : ${instanceType}`);
   console.log(`Storage      : ${storageGb} GB (${storageTypeLabel})`);
+  console.log(`Deployment   : ${deployment}`);
+  if (licenseModel) console.log(`License      : ${licenseModel}`);
+  if (dbEdition) console.log(`Edition      : ${dbEdition}`);
   console.log(`Description  : ${descriptionText}`);
   console.log(`Estimate Name: ${estimateTitle}`);
   console.log(`Mode         : ${isHeaded ? 'Headed (Visible)' : 'Headless'}`);
@@ -167,53 +259,71 @@ async function run() {
 
     // 5. Fill Description
     const descriptionInput = page.getByPlaceholder('Enter a description for your estimate').first();
-    if (await descriptionInput.isVisible().catch(() => false)) {
+    if (await waitVisible(descriptionInput)) {
       await descriptionInput.fill(descriptionText);
     }
 
     // 6. Select Region
-    const regionDropdown = page.getByRole('button', { name: /US East|Europe|Region/i }).first();
-    if (await regionDropdown.isVisible({ timeout: 5000 }).catch(() => false)) {
+    // The page has two dropdowns whose *current value* can read "Region" or a region name
+    // ("US East (Ohio)"), so matching on displayed value is ambiguous. Target by the field's
+    // accessible label ("Choose a Region") instead.
+    const regionDropdown = page.getByRole('button', { name: /choose a region/i }).first();
+    if (await waitVisible(regionDropdown, 5000)) {
       await regionDropdown.click();
       await page.waitForTimeout(500);
 
-      const regionSearchInput = page.getByPlaceholder(/search/i).or(page.getByRole('textbox')).first();
-      if (await regionSearchInput.isVisible().catch(() => false)) {
-        await regionSearchInput.fill(regionSearch);
-        await page.waitForTimeout(300);
-      }
-
       const regionOption = page.getByText(new RegExp(escapeRegExp(regionSearch), 'i')).first();
-      if (await regionOption.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await waitVisible(regionOption, 5000)) {
         await regionOption.click();
       }
     }
 
     // 7. Select Instance Type
     const instanceCombobox = page.getByRole('combobox', { name: /select an instance/i }).or(page.getByPlaceholder(/select an instance/i)).first();
-    if (await instanceCombobox.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await waitVisible(instanceCombobox, 5000)) {
       await instanceCombobox.click();
       await instanceCombobox.fill(instanceType.replace(/^db\./, ''));
       await page.waitForTimeout(500);
 
       const matchedOption = page.getByText(new RegExp(escapeRegExp(instanceType), 'i')).first();
-      if (await matchedOption.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await waitVisible(matchedOption, 5000)) {
         await matchedOption.click();
       }
     }
 
+    // 7.5. Select Deployment Option (Single-AZ / Multi-AZ)
+    await selectDropdownOption(page, 'Deployment option', deployment, 'deployment option');
+
+    // 7.6. Select License model (engine-specific field, e.g. SQL Server/Oracle)
+    if (licenseModel) {
+      await selectDropdownOption(page, 'License', licenseModel, 'license model');
+    }
+
+    // 7.7. Select Database edition (engine-specific field, e.g. SQL Server/Oracle)
+    // Depends on the License model above — the option list only offers editions valid for
+    // whatever license was just selected, so this must run after the license step.
+    if (dbEdition) {
+      await selectDropdownOption(page, 'Database edition', dbEdition, 'database edition', true);
+    }
+
     // 8. Select Storage Type & Amount
-    const storageTypeOption = page.getByText(new RegExp(escapeRegExp(storageTypeLabel), 'i')).first();
-    if (await storageTypeOption.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await storageTypeOption.click();
+    // The storage type option text only exists once the storage volume dropdown is opened.
+    const storageVolumeDropdown = page.getByRole('button', { name: /general purpose ssd|provisioned iops ssd|magnetic/i }).first();
+    if (await waitVisible(storageVolumeDropdown, 5000)) {
+      await storageVolumeDropdown.click();
+      const storageTypeOption = page.getByText(new RegExp(escapeRegExp(storageTypeLabel), 'i')).first();
+      if (await waitVisible(storageTypeOption, 5000)) {
+        await storageTypeOption.click();
+      }
     }
 
     const storageAmountInput = page.getByRole('spinbutton', { name: /storage amount/i }).or(page.getByPlaceholder(/storage amount/i)).first();
-    if (await storageAmountInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await waitVisible(storageAmountInput, 5000)) {
       await storageAmountInput.fill(storageGb);
     }
 
     // 9. Save and view summary
+    await assertNoValidationErrors(page, 'before saving the estimate');
     await dismissCookies();
     const saveAndSummaryBtn = page.getByRole('button', { name: /save and view summary|save and add to estimate/i }).first();
     await saveAndSummaryBtn.click();
@@ -223,36 +333,38 @@ async function run() {
 
     // 11. Edit Estimate Title
     const editTitleLink = page.getByRole('link', { name: /edit my estimate|edit/i }).or(page.getByText(/edit/i)).first();
-    if (await editTitleLink.isVisible().catch(() => false)) {
+    if (await waitVisible(editTitleLink)) {
       await editTitleLink.click().catch(() => {});
       const titleInput = page.getByRole('textbox', { name: /enter name|estimate name/i }).first();
-      if (await titleInput.isVisible().catch(() => false)) {
+      if (await waitVisible(titleInput)) {
         await titleInput.fill(estimateTitle);
         const saveTitleBtn = page.getByRole('button', { name: /^save$/i }).first();
-        if (await saveTitleBtn.isVisible().catch(() => false)) {
+        if (await waitVisible(saveTitleBtn)) {
           await saveTitleBtn.click();
         }
       }
     }
 
     // Extract Cost Numbers from Summary
-    const monthlyCostText = await page.getByText(/Monthly cost/i).locator('xpath=..').textContent().catch(() => '');
-    const annualCostText = await page.getByText(/Total 12 months cost/i).locator('xpath=..').textContent().catch(() => '');
+    // "Monthly cost" also matches a sortable table-column header button elsewhere on the page,
+    // so getByText(...).locator('..') hits a strict-mode violation unless scoped to the first match.
+    const monthlyCostText = await page.getByText(/Monthly cost/i).first().locator('xpath=..').textContent().catch(() => '');
+    const annualCostText = await page.getByText(/Total 12 months cost/i).first().locator('xpath=..').textContent().catch(() => '');
 
     // 12. Export CSV
     let exportedCsvPath = '';
     const exportBtn = page.getByRole('button', { name: /export/i }).first();
-    if (await exportBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await waitVisible(exportBtn, 5000)) {
       await exportBtn.click();
       await page.waitForTimeout(500);
 
       const csvOption = page.getByText(/^csv$/i).or(page.getByRole('menuitem', { name: /csv/i })).first();
-      if (await csvOption.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await waitVisible(csvOption, 5000)) {
         await csvOption.click();
         await page.waitForTimeout(500);
 
         const okBtn = page.getByRole('button', { name: /^ok$/i }).first();
-        if (await okBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await waitVisible(okBtn, 5000)) {
           const downloadPromise = page.waitForEvent('download', { timeout: 15000 });
           await okBtn.click();
           const download = await downloadPromise.catch(() => null);
@@ -272,19 +384,34 @@ async function run() {
     let publicShareUrl = '';
     await dismissCookies();
     const shareBtn = page.getByRole('button', { name: /share/i }).first();
-    if (await shareBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await waitVisible(shareBtn, 5000)) {
       await shareBtn.click();
       await page.waitForTimeout(1000);
 
       const agreeBtn = page.getByRole('button', { name: /agree and continue|save/i }).first();
-      if (await agreeBtn.isVisible().catch(() => false)) {
+      if (await waitVisible(agreeBtn)) {
         await agreeBtn.click();
         await page.waitForTimeout(1000);
       }
 
-      const publicLinkInput = page.getByRole('textbox', { name: /copy public link/i }).first();
-      if (await publicLinkInput.isVisible().catch(() => false)) {
-        publicShareUrl = await publicLinkInput.inputValue();
+      // The page renders two "Copy public link" textboxes (a duplicate/responsive layout node
+      // stays in the DOM empty); .first() picks whichever comes first in DOM order, which isn't
+      // always the populated one. Poll all matches until one actually has a value.
+      const publicLinkInputs = page.getByRole('textbox', { name: /copy public link/i });
+      for (let attempt = 0; attempt < 10 && !publicShareUrl; attempt++) {
+        const count = await publicLinkInputs.count();
+        for (let i = 0; i < count; i++) {
+          const value = await publicLinkInputs.nth(i).inputValue().catch(() => '');
+          if (value) {
+            publicShareUrl = value;
+            break;
+          }
+        }
+        if (!publicShareUrl) {
+          await page.waitForTimeout(500);
+        }
+      }
+      if (publicShareUrl) {
         const urlDir = path.dirname(outUrlPath);
         if (!fs.existsSync(urlDir)) {
           fs.mkdirSync(urlDir, { recursive: true });
