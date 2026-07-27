@@ -5,3 +5,12 @@ blob-report/
 .mcp/
 .auth/
 .playwright-mcp/
+
+# Python & uv
+python/.venv/
+python/dist/
+python/*.egg-info/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+

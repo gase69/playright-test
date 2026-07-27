@@ -13,6 +13,8 @@
     "codegen": "playwright codegen",
     "open": "playwright open",
     "estimate": "tsx scripts/generate-aws-rds-estimate.ts",
+    "estimate:py": "uv run --directory python generate-aws-rds-estimate-py",
+    "check:py": "uv run --directory python ruff check . && uv run --directory python pyright",
     "check": "tsc --noEmit",
     "lint": "eslint .",
     "audit": "npm audit",

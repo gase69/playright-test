@@ -35,9 +35,10 @@ The teaching goal is to **contrast** the three: fixed assertions (scripts) vs. r
 | Trace & Report | `npm run test:trace` / `npm run trace` / `npm run report` |
 | Record a script (codegen) | `npm run codegen` |
 | Inspector on a URL | `npm run open` |
-| **AWS RDS CLI Generator (Direct)** | `./scripts/generate-aws-rds-estimate.ts [options]` |
-| **AWS RDS CLI Generator (NPM)** | `npm run estimate -- [options]` |
+| **AWS RDS CLI Generator (TS)** | `npm run estimate -- [options]` / `./scripts/generate-aws-rds-estimate.ts` |
+| **AWS RDS CLI Generator (Python)** | `npm run estimate:py -- [options]` / `uv run --directory python generate-aws-rds-estimate-py` |
 | **TypeScript Type Check** | `npm run check` |
+| **Python Quality Check** | `npm run check:py` (`ruff` + `pyright`) |
 | **ESLint & Security Linting** | `npm run lint` |
 | **Dependency Security Audit** | `npm run audit` |
 | **Full Security & Type Check** | `npm run sec-check` |
@@ -55,6 +56,10 @@ CLAUDE.md                         # stub → AGENTS.md
 APPROACH.md                       # full plan / decisions log
 scripts/
   generate-aws-rds-estimate.ts    # Executable TS CLI generator for AWS RDS Pricing Calculator estimates
+python/                           # Python sub-project workspace (uv, hatchling, typer, pydantic, rich, ruff)
+  pyproject.toml                 # Package configuration, dependencies, and tool settings
+  generate_aws_rds_estimate.py    # Python CLI generator for AWS RDS estimates
+  test_estimate.py                # Pytest unit tests for config validation
 tests/
   01-smoke.spec.ts
   02-locators.spec.ts
