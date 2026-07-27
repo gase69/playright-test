@@ -339,6 +339,25 @@ async function run() {
   const dbEdition = values.edition;
   const utilizationValue = values['utilization-value'] || '100';
   const utilizationUnit = values['utilization-unit'] || '%Utilized/Month';
+  const utilValNum = Number(utilizationValue);
+  const utilUnitLower = utilizationUnit.toLowerCase();
+
+  if (utilUnitLower.includes('day') && utilValNum > 24) {
+    console.error(`\n❌ Invalid utilization: '${utilizationValue} ${utilizationUnit}'. Hours/Day cannot exceed 24 hours per day.`);
+    process.exit(1);
+  }
+  if (utilUnitLower.includes('week') && utilValNum > 168) {
+    console.error(`\n❌ Invalid utilization: '${utilizationValue} ${utilizationUnit}'. Hours/Week cannot exceed 168 hours per week.`);
+    process.exit(1);
+  }
+  if (utilUnitLower.includes('month') && utilUnitLower.includes('hour') && utilValNum > 730) {
+    console.error(`\n❌ Invalid utilization: '${utilizationValue} ${utilizationUnit}'. Hours/Month cannot exceed 730 hours per month.`);
+    process.exit(1);
+  }
+  if (utilUnitLower.includes('%') && utilValNum > 100) {
+    console.error(`\n❌ Invalid utilization: '${utilizationValue} ${utilizationUnit}'. %Utilized/Month cannot exceed 100%.`);
+    process.exit(1);
+  }
   const descriptionText = values.description || `RDS ${engine} - Production Database`;
   const estimateTitle = values.name || `RDS ${engine} Production Estimate (${regionCode})`;
   const isHeaded = !!values.headed;

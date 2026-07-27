@@ -29,6 +29,15 @@ def test_rds_estimate_config_validation():
         RdsEstimateConfig(storage_gb=-10)
 
 
+def test_utilization_bounds_validation():
+    with pytest.raises(ValueError, match="Hours/Day cannot exceed 24"):
+        RdsEstimateConfig(utilization_value=80, utilization_unit="Hours/Day")
+
+    with pytest.raises(ValueError, match="%Utilized/Month cannot exceed 100%"):
+        RdsEstimateConfig(utilization_value=120, utilization_unit="%Utilized/Month")
+
+
+
 
 def test_timestamp_string_format():
     ts = get_timestamp_string()

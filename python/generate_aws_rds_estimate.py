@@ -12,7 +12,7 @@ from typing import Annotated
 
 import typer
 from playwright.async_api import Locator, Page, async_playwright
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -75,6 +75,28 @@ class RdsEstimateConfig(BaseModel):
         if v <= 0:
             raise ValueError("storage_gb must be greater than 0")
         return v
+
+    @model_validator(mode="after")
+    def validate_utilization_bounds(self) -> "RdsEstimateConfig":
+        unit = self.utilization_unit.lower()
+        val = self.utilization_value
+        if "day" in unit and val > 24:
+            raise ValueError(
+                f"Invalid utilization: '{val} {self.utilization_unit}'. Hours/Day cannot exceed 24 hours per day."
+            )
+        if "week" in unit and val > 168:
+            raise ValueError(
+                f"Invalid utilization: '{val} {self.utilization_unit}'. Hours/Week cannot exceed 168 hours per week."
+            )
+        if "month" in unit and "hour" in unit and val > 730:
+            raise ValueError(
+                f"Invalid utilization: '{val} {self.utilization_unit}'. Hours/Month cannot exceed 730 hours per month."
+            )
+        if "%" in unit and val > 100:
+            raise ValueError(
+                f"Invalid utilization: '{val} {self.utilization_unit}'. %Utilized/Month cannot exceed 100%."
+            )
+        return self
 
 
 class RdsEstimateResult(BaseModel):
