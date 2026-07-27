@@ -94,16 +94,37 @@ async function selectDropdownOption(
   }
   await field.click();
   await page.waitForTimeout(300);
-  const option = page.getByRole('option', { name: new RegExp(`^${escapeRegExp(desiredValue)}$`, 'i') }).first();
-  if (!(await waitVisible(option, 5000))) {
+
+  // Clean base target string, e.g. "Enterprise Edition" -> "Enterprise", "Standard Edition" -> "Standard"
+  const baseTarget = desiredValue.replace(/\s+Edition$/i, '').trim();
+
+  // Try locator candidates in order of strictness
+  const candidateLocators = [
+    page.getByRole('option', { name: new RegExp(`^${escapeRegExp(desiredValue)}$`, 'i') }).first(),
+    page.getByRole('option', { name: new RegExp(`^${escapeRegExp(baseTarget)}$`, 'i') }).first(),
+    page.getByRole('option', { name: new RegExp(escapeRegExp(desiredValue), 'i') }).first(),
+    page.getByRole('option', { name: new RegExp(escapeRegExp(baseTarget), 'i') }).first(),
+    page.getByRole('option').filter({ hasText: new RegExp(escapeRegExp(baseTarget), 'i') }).first(),
+  ];
+
+  let selectedOption: import('@playwright/test').Locator | null = null;
+  for (const cand of candidateLocators) {
+    if (await waitVisible(cand, 1000)) {
+      selectedOption = cand;
+      break;
+    }
+  }
+
+  if (!selectedOption) {
     const available = await page.getByRole('option').allTextContents().catch(() => []);
     await page.keyboard.press('Escape').catch(() => {});
     throw new Error(
       `"${desiredValue}" is not a valid ${fieldContext} for the currently selected configuration. ` +
-      `Available options: ${available.filter(Boolean).join(', ') || '(none found)'}`
+      `Available options: ${available.map((s) => s.trim()).filter(Boolean).join(', ') || '(none found)'}`
     );
   }
-  await option.click();
+
+  await selectedOption.click();
   await page.waitForTimeout(300);
   if (verifyAfter) {
     await assertNoValidationErrors(page, `after selecting ${fieldContext} = "${desiredValue}"`);
@@ -162,6 +183,97 @@ interface ParsedCliValues {
   headed?: boolean;
   'out-csv'?: string;
   'out-url'?: string;
+  help?: boolean;
+  verbose?: boolean;
+}
+
+function printHelp(verbose = false): void {
+  console.log(`
+AWS RDS Estimate Generator CLI
+
+Usage:
+  ./scripts/generate-aws-rds-estimate.ts [options]
+  npm run estimate -- [options]
+
+Options:
+  --engine, -e        Database Engine (default: PostgreSQL)
+  --region, -r        AWS Region code (default: eu-central-1)
+  --instance-type, -i Instance Class shape (default: db.r7g.xlarge)
+  --storage-type, -t  Storage Volume Type (default: gp3)
+  --storage-gb, -s    Storage size in GB (default: 50)
+  --deployment, -d    Deployment Model, e.g. Single-AZ / Multi-AZ (default: Multi-AZ)
+  --license           License model, e.g. "License included" / "Bring your own media"
+  --edition           Database edition, e.g. Enterprise / Standard / Web / Express
+  --description       Custom description for the RDS service
+  --name              Custom title for the estimate
+  --headed            Run browser in visible window mode (default: false)
+  --out-csv, -c       Target output path for CSV export
+  --out-url, -u       Target output path for share URL
+  --verbose, -v       Show detailed option values and usage examples
+  --help, -h          Show this help message`);
+
+  if (!verbose) {
+    console.log(`
+Tip: Run with '--verbose' or '-v' (e.g. './scripts/generate-aws-rds-estimate.ts --help -v')
+     to view all supported engines, region mappings, storage types, editions, and examples.\n`);
+    return;
+  }
+
+  console.log(`
+================================================================================
+VERBOSE OPTIONS & ACCEPTED VALUES GUIDE
+================================================================================
+
+1. Database Engines (--engine, -e):
+   • PostgreSQL                    (Default)
+   • MySQL
+   • MariaDB
+   • SQL Server                    (Requires --license & --edition for specific shapes)
+   • Oracle                        (Requires --license & --edition for specific shapes)
+   • Aurora PostgreSQL / Aurora MySQL
+
+2. AWS Regions (--region, -r):
+   • eu-central-1 (Frankfurt)      (Default)
+   • us-east-1     (N. Virginia)    • us-east-2     (Ohio)
+   • us-west-1     (N. California)  • us-west-2     (Oregon)
+   • eu-west-1     (Ireland)        • eu-west-2     (London)
+   • eu-west-3     (Paris)          • ap-southeast-1(Singapore)
+   • ap-southeast-2(Sydney)         • ap-northeast-1(Tokyo)
+   • sa-east-1     (São Paulo)
+
+3. Storage Volume Types (--storage-type, -t):
+   • gp3         General Purpose SSD (gp3) (Default)
+   • gp2         General Purpose SSD (gp2)
+   • io1         Provisioned IOPS SSD (io1)
+   • io2         Provisioned IOPS SSD (io2)
+   • magnetic    Magnetic storage
+
+4. Deployment Options (--deployment, -d):
+   • Multi-AZ    Multi-AZ DB Instance or Cluster (Default)
+   • Single-AZ   Single DB Instance
+
+5. License Models (--license):
+   • "License included"              (Common for SQL Server / Oracle)
+   • "Bring your own license" / "Bring your own media" (BYOL)
+
+6. Database Editions (--edition):
+   • "Enterprise Edition"            (Note: SQL Server Enterprise requires >= 4 vCPU / xlarge)
+   • "Standard Edition" / "Standard Edition Two (SE2)"
+   • "Web Edition"                   (SQL Server only)
+   • "Express Edition"               (SQL Server only)
+
+================================================================================
+EXAMPLES
+================================================================================
+• Default PostgreSQL Multi-AZ on Graviton:
+  ./scripts/generate-aws-rds-estimate.ts
+
+• SQL Server Standard Edition with License Included:
+  ./scripts/generate-aws-rds-estimate.ts -e "SQL Server" -i db.m6i.large --license "License included" --edition "Standard Edition"
+
+• Oracle Database Enterprise (BYOL) with Headed GUI:
+  ./scripts/generate-aws-rds-estimate.ts -e Oracle -i db.m6i.xlarge --license "Bring your own license" --edition "Enterprise Edition" --headed
+\n`);
 }
 
 async function run() {
@@ -169,23 +281,39 @@ async function run() {
   const defaultCsvFilename = `test-results/aws-rds-estimate-${timestamp}.csv`;
   const defaultUrlFilename = `test-results/aws-rds-url-${timestamp}.txt`;
 
-  const { values } = parseArgs({
-    options: {
-      engine: { type: 'string', short: 'e', default: 'PostgreSQL' },
-      region: { type: 'string', short: 'r', default: 'eu-central-1' },
-      'instance-type': { type: 'string', short: 'i', default: 'db.r7g.xlarge' },
-      'storage-type': { type: 'string', short: 't', default: 'gp3' },
-      'storage-gb': { type: 'string', short: 's', default: '50' },
-      deployment: { type: 'string', short: 'd', default: 'Multi-AZ' },
-      license: { type: 'string' },
-      edition: { type: 'string' },
-      description: { type: 'string', default: 'RDS PostgreSQL - Production Database' },
-      name: { type: 'string', default: 'RDS PostgreSQL Production Estimate (eu-central-1)' },
-      headed: { type: 'boolean', default: false },
-      'out-csv': { type: 'string', short: 'c' },
-      'out-url': { type: 'string', short: 'u' },
-    },
-  }) as { values: ParsedCliValues };
+  let parsed: { values: ParsedCliValues };
+  try {
+    parsed = parseArgs({
+      options: {
+        engine: { type: 'string', short: 'e', default: 'PostgreSQL' },
+        region: { type: 'string', short: 'r', default: 'eu-central-1' },
+        'instance-type': { type: 'string', short: 'i', default: 'db.r7g.xlarge' },
+        'storage-type': { type: 'string', short: 't', default: 'gp3' },
+        'storage-gb': { type: 'string', short: 's', default: '50' },
+        deployment: { type: 'string', short: 'd', default: 'Multi-AZ' },
+        license: { type: 'string' },
+        edition: { type: 'string' },
+        description: { type: 'string' },
+        name: { type: 'string' },
+        headed: { type: 'boolean', default: false },
+        'out-csv': { type: 'string', short: 'c' },
+        'out-url': { type: 'string', short: 'u' },
+        help: { type: 'boolean', short: 'h', default: false },
+        verbose: { type: 'boolean', short: 'v', default: false },
+      },
+    }) as { values: ParsedCliValues };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`\n❌ Error parsing arguments: ${message}`);
+    printHelp(false);
+    process.exit(1);
+  }
+
+  const { values } = parsed;
+  if (values.help || values.verbose) {
+    printHelp(!!values.verbose);
+    process.exit(0);
+  }
 
   const engine = values.engine || 'PostgreSQL';
   const regionCode = values.region || 'eu-central-1';
@@ -197,8 +325,8 @@ async function run() {
   const deployment = values.deployment || 'Multi-AZ';
   const licenseModel = values.license;
   const dbEdition = values.edition;
-  const descriptionText = values.description || `RDS ${engine} Database`;
-  const estimateTitle = values.name || `RDS ${engine} Estimate (${regionCode})`;
+  const descriptionText = values.description || `RDS ${engine} - Production Database`;
+  const estimateTitle = values.name || `RDS ${engine} Production Estimate (${regionCode})`;
   const isHeaded = !!values.headed;
   const outCsvPath = path.resolve(process.cwd(), values['out-csv'] || defaultCsvFilename);
   const outUrlPath = path.resolve(process.cwd(), values['out-url'] || defaultUrlFilename);

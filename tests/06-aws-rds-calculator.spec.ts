@@ -142,15 +142,21 @@ test.describe('AWS Pricing Calculator - Custom RDS PostgreSQL Simulation', () =>
       await exportBtn.click({ force: true });
       await page.waitForTimeout(500);
 
-      const csvOption = page.getByText(/csv/i).first();
-      if (await csvOption.isVisible().catch(() => false)) {
-        const downloadPromise = page.waitForEvent('download', { timeout: 10000 }).catch(() => null);
+      const csvOption = page.getByText(/^csv$/i).or(page.getByRole('menuitem', { name: /csv/i })).first();
+      if (await csvOption.isVisible({ timeout: 5000 }).catch(() => false)) {
         await csvOption.click({ force: true });
-        const download = await downloadPromise;
-        if (download) {
-          const downloadPath = path.join(process.cwd(), 'test-results', 'aws-rds-estimate.csv');
-          await download.saveAs(downloadPath);
-          console.log(`CSV Estimate exported successfully to: ${downloadPath}`);
+        await page.waitForTimeout(500);
+
+        const okBtn = page.getByRole('button', { name: /^ok$/i }).first();
+        if (await okBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+          const downloadPromise = page.waitForEvent('download', { timeout: 15000 });
+          await okBtn.click({ force: true });
+          const download = await downloadPromise.catch(() => null);
+          if (download) {
+            const downloadPath = path.join(process.cwd(), 'test-results', 'aws-rds-estimate.csv');
+            await download.saveAs(downloadPath);
+            console.log(`CSV Estimate exported successfully to: ${downloadPath}`);
+          }
         }
       }
     }
