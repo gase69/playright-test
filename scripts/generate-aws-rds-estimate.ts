@@ -490,11 +490,7 @@ async function run() {
       await storageAmountInput.fill(storageGb);
     }
 
-    // 8.5. Select Utilization Value & Unit
-    const utilInput = page.getByRole('spinbutton', { name: /utilization/i }).first();
-    if (await waitVisible(utilInput, 5000)) {
-      await utilInput.fill(utilizationValue);
-    }
+    // 8.5. Select Utilization Unit FIRST, then Value SECOND
     if (utilizationUnit) {
       const unitBtn = page.getByRole('button', { name: /utilized|hours/i }).first();
       if (await waitVisible(unitBtn, 5000)) {
@@ -503,8 +499,14 @@ async function run() {
         const unitOpt = page.getByRole('option').filter({ hasText: new RegExp(escapeRegExp(utilizationUnit), 'i') }).first();
         if (await waitVisible(unitOpt, 5000)) {
           await unitOpt.click();
+          await page.waitForTimeout(300);
         }
       }
+    }
+
+    const utilInput = page.getByRole('spinbutton', { name: /utilization/i }).first();
+    if (await waitVisible(utilInput, 5000)) {
+      await utilInput.fill(utilizationValue);
     }
 
     // 9. Save and view summary

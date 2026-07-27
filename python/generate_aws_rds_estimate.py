@@ -384,13 +384,7 @@ async def run_estimate_generator(
                 if await wait_visible(storage_amt_input, 5000):
                     await storage_amt_input.fill(str(config.storage_gb))
 
-                # 8.5. Select Utilization Value & Unit
-                util_input = page.get_by_role(
-                    "spinbutton", name=re.compile(r"utilization", re.IGNORECASE)
-                ).first
-                if await wait_visible(util_input, 5000):
-                    await util_input.fill(str(config.utilization_value))
-
+                # 8.5. Select Utilization Unit FIRST, then Value SECOND
                 if config.utilization_unit:
                     unit_btn = page.get_by_role(
                         "button", name=re.compile(r"utilized|hours", re.IGNORECASE)
@@ -403,6 +397,13 @@ async def run_estimate_generator(
                         ).first
                         if await wait_visible(unit_opt, 5000):
                             await unit_opt.click()
+                            await page.wait_for_timeout(300)
+
+                util_input = page.get_by_role(
+                    "spinbutton", name=re.compile(r"utilization", re.IGNORECASE)
+                ).first
+                if await wait_visible(util_input, 5000):
+                    await util_input.fill(str(config.utilization_value))
 
                 # 9. Save and view summary
                 await assert_no_validation_errors(page, "before saving the estimate")
