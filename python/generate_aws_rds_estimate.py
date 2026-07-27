@@ -228,8 +228,13 @@ async def run_estimate_generator(
                         if (acceptBtn) acceptBtn.click();
                         const banner = document.getElementById('awsccc-sb-ux-c') || document.querySelector('.awsccc-sb-c');
                         if (banner) banner.remove();
-                        // Remove sales chat popups if present
-                        document.querySelectorAll('[class*="chat-widget"], [class*="sales-rep"], iframe[title*="chat"]').forEach(el => el.remove());
+                        // Remove sales chat popups and floating overlays
+                        document.querySelectorAll('[class*="chat"], [class*="sales"], [id*="chat"], [id*="sales"], iframe[title*="chat"]').forEach(el => el.remove());
+                        Array.from(document.querySelectorAll('div, section')).forEach(el => {
+                            if (el.textContent && el.textContent.includes('sales representative')) {
+                                el.remove();
+                            }
+                        });
                     }"""
                     )
 
@@ -450,15 +455,26 @@ async def run_estimate_generator(
                     await share_btn.click()
                     await page.wait_for_timeout(1000)
 
-                    agree_btn = page.get_by_role(
-                        "button",
-                        name=re.compile(r"agree and continue", re.IGNORECASE),
-                    ).first
+                    agree_btn = (
+                        page.get_by_role(
+                            "button",
+                            name=re.compile(r"agree and continue", re.IGNORECASE),
+                        )
+                        .or_(page.get_by_text(re.compile(r"agree and continue", re.IGNORECASE)))
+                        .first
+                    )
                     if await wait_visible(agree_btn, 5000):
+                        await dismiss_cookies()
                         try:
-                            await agree_btn.click()
-                        except Exception:
                             await agree_btn.click(force=True)
+                        except Exception:
+                            await page.evaluate(
+                                """() => {
+                                const btns = Array.from(document.querySelectorAll('button'));
+                                const agree = btns.find(b => b.textContent && /agree and continue/i.test(b.textContent));
+                                if (agree) agree.click();
+                            }"""
+                            )
                         await page.wait_for_timeout(1500)
 
                     public_link_inputs = page.get_by_role(

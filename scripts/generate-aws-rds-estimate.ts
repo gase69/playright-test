@@ -361,6 +361,12 @@ async function run() {
         if (acceptBtn) (acceptBtn as HTMLElement).click();
         const banner = document.getElementById('awsccc-sb-ux-c') || document.querySelector('.awsccc-sb-c');
         if (banner) banner.remove();
+        document.querySelectorAll('[class*="chat"], [class*="sales"], [id*="chat"], [id*="sales"], iframe[title*="chat"]').forEach(el => el.remove());
+        Array.from(document.querySelectorAll('div, section')).forEach(el => {
+          if (el.textContent && el.textContent.includes('sales representative')) {
+            el.remove();
+          }
+        });
       });
     };
 
